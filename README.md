@@ -156,6 +156,8 @@ The following public repositories showcase the work of course participants.
 
 * [Example] Matthew Farrugia-Roberts's fork:
   https://github.com/matomatical/hijax
+* Rohan Hitchcock's fork: 
+  https://github.com/rohan-hitchcock/hijax
 
 Participants are encouraged to create a pull request from their fork to this
 repository appending a link to their fork to the above list.
