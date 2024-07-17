@@ -1,0 +1,10 @@
+# Curated
+jax==0.4.30
+# jax-metal==0.1.0
+jaxlib==0.4.30
+ml-dtypes==0.4.0
+numpy==2.0.0
+pillow==10.4.0
+tqdm==4.66.4
+tyro==0.8.5
+einops==0.8.0

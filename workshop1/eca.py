@@ -12,9 +12,11 @@ import numpy as np
 from PIL import Image
 import tqdm
 
+import jax
+import jax.numpy as jnp
+import einops
 
 def main(
-    rule: int = 110,
     width: int = 32,
     height: int = 32,
     init: Literal["random", "middle"] = "middle",
@@ -24,89 +26,100 @@ def main(
     save_image: None | pathlib.Path = None,
     upscale: int = 1,
 ):
-    print(f"rule: {rule}")
-    print(f"bits: {rule:08b}")
-    print("Wolfram table:")
-    print(" 1 1 1   1 1 0   1 0 1   1 0 0   0 1 1   0 1 0   0 0 1   0 0 0")
-    print("   " + "       ".join(f'{rule:08b}'))
     
     print("initialising state...")
     match init:
         case "middle":
-            state = np.zeros(width, dtype=np.uint8)
-            state[width//2] = 1
+            state = jnp.zeros(width, dtype=jnp.uint8)
+            state = state.at[width//2].set(1)
         case "random":
-            np.random.seed(seed)
-            state = np.random.randint(
-                low=0,
-                high=2, # not included
-                size=(width,),
-                dtype=np.uint8,
+            key = jax.random.key(seed)
+            key, key_to_be_used = jax.random.split(key)
+            state = jax.random.randint(
+                key=key_to_be_used,
+                minval=0,
+                maxval=2, # not included
+                shape=(width,),
+                dtype=jnp.uint8,
             )
     print("initial state:", state)
 
-    print("simulating automaton...")
+    print("simulating automata...")
     start_time = time.perf_counter()
-    history = simulate(
-        rule=rule,
-        init_state=state,
-        height=height,
+    histories = jax.jit(
+        jax.vmap(
+            simulate,
+            in_axes=(0,None,None),
+            out_axes=0, # the default
+        ),
+        static_argnames=('height',),
+    )(
+        jnp.arange(256),
+        state,
+        height,
     )
     end_time = time.perf_counter()
     print("simulation complete!")
-    print("result shape", history.shape)
+    print("result shape", histories.shape)
     print(f"time taken {end_time - start_time:.4f} seconds")
 
     if animate:
         print("rendering...")
-        for row in history:
-            print(''.join(["█░"[s]*2 for s in row]))
+        for i, history in enumerate(histories):
+            print("rule", i)
+            for row in history:
+                print(''.join(["█░"[s]*2 for s in row]))
+                if fps is not None: time.sleep(1/fps)
             if fps is not None: time.sleep(1/fps)
 
     if save_image is not None:
         print("rendering to", save_image, "...")
-        history_greyscale = 255 * (1-history)
-        history_upscaled = (history_greyscale
+        histories_arranged = einops.rearrange(
+            histories,
+            '(r1 r2) h w -> (r1 h) (r2 w)',
+            r1=16,
+            r2=16,
+        )
+        histories_greyscale = 255 * (1-histories_arranged)
+        histories_upscaled = (histories_greyscale
             .repeat(upscale, axis=0)
             .repeat(upscale, axis=1)
         )
-        Image.fromarray(history_upscaled).save(save_image)
+        Image.fromarray(np.asarray(histories_upscaled)).save(save_image)
 
         
 def simulate(
     rule: int,
-    init_state: np.typing.ArrayLike,    # uint8[width]
+    init_state: jax.Array,    # uint8[width]
     height: int,
-) -> np.typing.NDArray:                 # uint8[height, width]
+) -> jax.Array:               # uint8[height, width]
     # parse rule
-    rule_uint8 = np.uint8(rule)
-    rule_bits = np.unpackbits(rule_uint8, bitorder='little')
+    rule_uint8 = jnp.uint8(rule)
+    rule_bits = jnp.unpackbits(rule_uint8, bitorder='little')
     rule_table = rule_bits.reshape(2,2,2)
 
     # parse initial state
-    init_state = np.asarray(init_state, dtype=np.uint8)
-    (width,) = init_state.shape
+    init_state = jnp.pad(init_state, 1, mode='wrap')
 
-    # accumulate output into this array
-    # extra width is to implement wraparound with slicing
-    history = np.zeros((height, width+2), dtype=np.uint8)
-
-    # first row
-    history[0, 1:-1] = init_state
-    history[0, 0] = init_state[-1]
-    history[0, -1] = init_state[0]
-    
-    # remaining rows
-    for step in tqdm.trange(1, height):
-        # apply rules
-        history[step, 1:-1] = rule_table[
-            history[step-1, 0:-2],
-            history[step-1, 1:-1],
-            history[step-1, 2:],
+    def step(prev_state, _input):
+        next_state = rule_table[
+            prev_state[0:-2],
+            prev_state[1:-1],
+            prev_state[2:],
         ]
-        # sync edges
-        history[step, 0] = history[step, -2]
-        history[step, -1] = history[step, 1]
+        next_state = jnp.pad(next_state, 1, mode='wrap')
+        return next_state, next_state
+    
+    final_state, history_tail = jax.lax.scan(
+        step,
+        init_state,
+        jnp.zeros(height-1)
+    )
+
+    history = jnp.concatenate(
+        [init_state[jnp.newaxis,:], history_tail],
+        axis=0
+    )
 
     # return a view of the array without the width padding
     return history[:, 1:-1]
