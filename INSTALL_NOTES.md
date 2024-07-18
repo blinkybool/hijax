@@ -1,3 +1,4 @@
+For jax-metal do this:
 ```bash
 # Install python=3.12
 pyenv install 3.12
@@ -11,3 +12,5 @@ pip install jax-metal==0.1.0
 # Test it works 
 python -c 'import jax; print(jax.numpy.arange(10))' 
 ```
+
+I had problems, so switched to regular JAX (just do `pip install -r requirements.txt`)
