@@ -47,7 +47,7 @@ def main(
                 dtype=jnp.uint8,
             )
             
-    print("generating rule bits")
+    print("generating rule bits...")
     rule_bits = gol_rule_bits()
 
     if animate:
