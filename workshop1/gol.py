@@ -159,7 +159,7 @@ def simulate(
         axis=0
     )
 
-    # return a view of the array without the width padding
+    # remove padding
     return history[:, 1:-1, 1:-1]
 
 
