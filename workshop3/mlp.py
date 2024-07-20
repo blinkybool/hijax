@@ -158,7 +158,7 @@ def main(
     if lr_schedule:
         learning_rate = optax.linear_schedule(
             init_value=learning_rate,
-            end_value=learning_rate/10,
+            end_value=learning_rate/100,
             transition_steps=num_steps,
         )
     if opt == 'sgd':
@@ -198,7 +198,6 @@ def main(
         # compute update, update optimiser and model
         updates, opt_state = optimiser.update(grads, opt_state, model)
         model = optax.apply_updates(model, updates)
-
 
         # track metrics
         losses.append((step, loss))
@@ -311,7 +310,7 @@ def vis_metrics(
             yrange=(0, max(l for s, l in losses)),
             color=(1,0,1),
             width=38,
-            height=14,
+            height=11,
         ))
         ^ mp.text(f"loss: {losses[-1][1]:.3f}")
     )
@@ -323,7 +322,7 @@ def vis_metrics(
             yrange=(0, 1),
             color=(0,1,0),
             width=38,
-            height=14,
+            height=11,
         ))
         ^ mp.text(f"acc: {accuracies[-1][1]:.2%}")
     )
