@@ -34,17 +34,43 @@ import jax
 import jax.numpy as jnp
 import einops
 import optax
-import equinox
+import equinox as eqx
 
 import tqdm
-import draft_mattplotlib as mp
+import mattplotlib as mp
 
 
 # # # 
 # Architecture
 
 
-# TODO
+class CNN(eqx.Module):
+    conv: eqx.nn.Conv2d
+    max_pool: eqx.nn.MaxPool2d
+    dense1: eqx.nn.Linear
+    dense2: eqx.nn.Linear
+    dense3: eqx.nn.Linear
+
+    def __init__(self, key):
+        k1, k2, k3, k4 = jax.random.split(key, 4)
+        self.conv = eqx.nn.Conv2d(1, 3, kernel_size=4, key=k1)
+        self.max_pool = eqx.nn.MaxPool2d(kernel_size=2)
+        self.dense1 = eqx.nn.Linear(1728, 512, key=k2)
+        self.dense2 = eqx.nn.Linear(512, 64, key=k3)
+        self.dense3 = eqx.nn.Linear(64, 10, key=k4)
+
+    def __call__(self, x):
+        x = self.conv(x)
+        x = self.max_pool(x)
+        x = jax.nn.relu(x)
+        x = jnp.ravel(x)
+        x = self.dense1(x)
+        x = jax.nn.sigmoid(x)
+        x = self.dense2(x)
+        x = jax.nn.relu(x)
+        x = self.dense3(x)
+        x = jax.nn.softmax(x)
+        return x
 
 
 # # # 
@@ -66,6 +92,8 @@ def main(
 
 
     print("initialising model...")
+    key_model, key = jax.random.split(key)
+    model = CNN(key)
 
     
     print("loading and preprocessing data...")
@@ -79,7 +107,7 @@ def main(
         (x_train, x_test, y_train, y_test),
     )
     x_train, x_test = jax.tree.map(
-        lambda x: x/255,
+        lambda x: einops.rearrange(x/255, 'b h w -> b 1 h w'),
         (x_train, x_test),
     )
 
@@ -120,19 +148,20 @@ def main(
         y_batch = y_train[batch]
 
         # compute the batch loss and grad
-        loss, grads = jax.value_and_grad(cross_entropy)(
-            model,
+        batch_model = jax.vmap(model)
+        loss, grads = eqx.filter_value_and_grad(cross_entropy)(
+            batch_model,
             x_batch,
             y_batch,
         )
 
         # compute update, update optimiser and model
         updates, opt_state = optimiser.update(grads, opt_state, model)
-        model = optax.apply_updates(model, updates)
+        model = eqx.apply_updates(model, updates)
 
         # track metrics
         losses.append((step, loss))
-        test_acc = accuracy(model, x_test[:1000], y_test[:1000])
+        test_acc = accuracy(batch_model, x_test[:1000], y_test[:1000])
         accuracies.append((step, test_acc))
 
 
@@ -141,7 +170,7 @@ def main(
             digit_plot = vis_digits(
                 digits=x_test[:num_digits_per_visualisation],
                 true_labels=y_test[:num_digits_per_visualisation],
-                pred_labels=model(
+                pred_labels=batch_model(
                     x_test[:num_digits_per_visualisation]
                 ).argmax(axis=-1),
             )
@@ -170,7 +199,7 @@ def main(
 
 
 def cross_entropy(
-    model: MLPImageClassifier,
+    model: CNN,
     x_batch: Float[Array, "b h w"],
     y_batch: Int[Array, "b"],
 ) -> float:
@@ -189,7 +218,7 @@ def cross_entropy(
 
 
 def accuracy(
-    model: MLPImageClassifier,
+    model: CNN,
     x_batch: Float[Array, "b h w"],
     y_batch: Int[Array, "b"],
 ) -> float:
@@ -208,8 +237,8 @@ def vis_digits(
     pred_labels: Int[Array, "n"] | None = None,
 ) -> mp.plot:
     # downsample images
-    ddigits = digits[:,::2,::2]
-    dwidth = digits.shape[2] // 2
+    ddigits = digits[:,0,::2,::2]
+    dwidth = digits.shape[-1] // 2
 
     # if predictions provided, classify as true or false
     if pred_labels is not None:
