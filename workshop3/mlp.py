@@ -10,7 +10,7 @@ Workshop plan:
 * deep learning in jax:
   * dm-haiku, flax.linen, equinox, flax.nnx, try not to rant too much
   * optax and the 'dm jax ecosystem'
-* new jax concept: pytrees (we saw these last time)
+* new jax concept: pytrees (we saw these last time actually)
 * workshop 3 demo:
   * implement MLP with equinox
   * load MNIST https://yann.lecun.com/exdb/mnist/
@@ -20,8 +20,8 @@ Workshop plan:
   * replicate some architectures and performance numbers from lecun's table
 """
 
-from jaxtyping import Array, Float, Int, PRNGKeyArray as Key
 from typing import Literal
+from jaxtyping import Array, Float, Int, PRNGKeyArray as Key
 
 import jax
 import jax.numpy as jnp
@@ -114,6 +114,7 @@ def main(
 ):
     key = jax.random.key(seed)
 
+
     # initialise model
     print("initialising model...")
     key_model, key = jax.random.split(key)
@@ -126,6 +127,7 @@ def main(
 
     # print(model)
     # print(model(jnp.zeros((2,28,28))))
+
 
     print("loading and preprocessing data...")
     with jnp.load('mnist.npz') as datafile:
@@ -150,6 +152,7 @@ def main(
     #     # ).argmax(axis=-1),
     # ))
 
+
     print("initialising optimiser...")
     # configure the optimiser
     if lr_schedule:
@@ -168,6 +171,7 @@ def main(
     opt_state = optimiser.init(model)
     
     # print(opt_state)
+
 
     print("begin training...")
     losses = []
@@ -195,10 +199,12 @@ def main(
         updates, opt_state = optimiser.update(grads, opt_state, model)
         model = optax.apply_updates(model, updates)
 
+
         # track metrics
         losses.append((step, loss))
         test_acc = accuracy(model, x_test[:1000], y_test[:1000])
         accuracies.append((step, test_acc))
+
 
         # visualisation!
         if step % steps_per_visualisation == 0 or step == num_steps - 1:
@@ -220,13 +226,16 @@ def main(
                 + metrics_plot.height
                 + 1+len(opt_state_str.splitlines())
             )
-
             tqdm.tqdm.write(
                 (f"\x1b[{output_height}A" if step > 0 else "")
                 + f"{digit_plot}\n"
                 + f"{metrics_plot}\n"
                 + f"optimiser state:\n{opt_state_str}"
             )
+
+
+# # # 
+# Metrics
 
 
 def cross_entropy(
