@@ -1,23 +1,37 @@
 """
-MLP for handwritten digit classification, implemented with equinox and optax.
+MLP for handwritten digit classification, implemented with equinox.
 
-Workshop plan:
+Preliminaries:
 
 * any questions from homework?
 * installations:
   * new library! `pip install equinox`
-  * today we'll also embrace `jaxtyping`, `einops`, and `mattplotlib`
-* deep learning in jax:
-  * dm-haiku, flax.linen, equinox, flax.nnx, try not to rant too much
-  * optax and the 'dm jax ecosystem'
-* new jax concept: pytrees (we saw these last time actually)
-* workshop 3 demo:
-  * implement MLP with equinox
-  * load MNIST https://yann.lecun.com/exdb/mnist/
-  * train MLP on MNIST with optax (sgd, adam, lr schedule, adamw)
-* challenges:
-  * implement a stateful optimiser object from scratch
-  * replicate some architectures and performance numbers from lecun's table
+  * new library! `pip install jaxtyping`
+  * today we'll also see `einops` and `mattplotlib`
+* download data! MNIST (11MB)
+  ```
+  curl https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz --output mnist.npz
+  ```
+
+Notes:
+
+* options for deep learning in jax (try not to rant)
+  * deepmind's `haiku`
+  * google brain's `flax.linen`
+  * patrick kidger's `equinox` (most pedagogically convenient)
+  * google deepmind's `flax.nnx` (next generation by fiat)
+* new jax concept: pytrees
+  * we saw these last time actually
+
+Workshop plan:
+
+* implement image classifier MLP with equinox
+* load MNIST data set
+* train MLP on MNIST with minibatch SGD
+
+Challenge:
+
+* manually register the MLP modules as pytrees (obviating equinox dependency)
 """
 
 from typing import Literal
@@ -26,11 +40,10 @@ from jaxtyping import Array, Float, Int, PRNGKeyArray as Key
 import jax
 import jax.numpy as jnp
 import einops
-import optax
 import equinox
 
 import tqdm
-import draft_mattplotlib as mp
+import mattplotlib as mp
 
 
 # # # 
@@ -104,8 +117,6 @@ class MLPImageClassifier(equinox.Module):
 def main(
     num_hidden: int = 300,
     learning_rate: float = 0.05,
-    lr_schedule: bool = False,
-    opt: Literal["sgd", "adam", "adamw"] = "sgd",
     batch_size: int = 512,
     num_steps: int = 256,
     steps_per_visualisation: int = 4,
@@ -153,26 +164,6 @@ def main(
     # ))
 
 
-    print("initialising optimiser...")
-    # configure the optimiser
-    if lr_schedule:
-        learning_rate = optax.linear_schedule(
-            init_value=learning_rate,
-            end_value=learning_rate/100,
-            transition_steps=num_steps,
-        )
-    if opt == 'sgd':
-        optimiser = optax.sgd(learning_rate)
-    elif opt == 'adam':
-        optimiser = optax.adam(learning_rate)
-    elif opt == 'adamw':
-        optimiser = optax.adamw(learning_rate)
-    # initialise the optimiser state
-    opt_state = optimiser.init(model)
-    
-    # print(opt_state)
-
-
     print("begin training...")
     losses = []
     accuracies = []
@@ -195,9 +186,11 @@ def main(
             y_batch,
         )
 
-        # compute update, update optimiser and model
-        updates, opt_state = optimiser.update(grads, opt_state, model)
-        model = optax.apply_updates(model, updates)
+        model = jax.tree.map(
+            lambda w, g: w - learning_rate * g,
+            model,
+            grads,
+        )
 
         # track metrics
         losses.append((step, loss))
@@ -219,18 +212,11 @@ def main(
                 accuracies=accuracies,
                 total_num_steps=num_steps,
             )
-            opt_state_str = str(opt_state)
-            output_height = (
-                digit_plot.height
-                + metrics_plot.height
-                + 1+len(opt_state_str.splitlines())
-            )
-            tqdm.tqdm.write(
-                (f"\x1b[{output_height}A" if step > 0 else "")
-                + f"{digit_plot}\n"
-                + f"{metrics_plot}\n"
-                + f"optimiser state:\n{opt_state_str}"
-            )
+            plot = digit_plot ^ metrics_plot
+            if step == 0:
+                tqdm.tqdm.write(str(plot))
+            else:
+                tqdm.tqdm.write(f"\x1b[{plot.height}A{plot}")
 
 
 # # # 
