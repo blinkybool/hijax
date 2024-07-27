@@ -1,6 +1,4 @@
 *.venv
 env
 __pycache__
-.python-version
-soln
-wip
+*.npz
