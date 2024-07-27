@@ -68,9 +68,8 @@ def main(
     for t in tqdm.trange(epochs):
         l, g = value_and_grad(params)
         params = update_params(params, g, learning_rate=learning_rate)
-        if t % 10 == 0:
+        if t % 100 == 0:
             tqdm.tqdm.write(f'loss: {l:.6f}')
-            time.sleep(.02)
 
     num_correct = len(inputs)
     for input, answer in zip(inputs, outputs):
