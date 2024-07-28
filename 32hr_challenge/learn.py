@@ -1,84 +1,86 @@
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Int, PRNGKeyArray as Key
+from typing import List
 import itertools
 import conway
+import equinox
 import tqdm
-import time
 
-def random_layer_params(m, n, key):
-    '''
-    init weights and biases for 
-    '''
-    w_key, b_key = jax.random.split(key)
-    return jax.random.normal(w_key, (n,m)), jax.random.normal(b_key, (n,))
+class ConwayModel(equinox.Module):
+    layers: List[equinox.nn.Linear]
 
-def init_network_params(sizes, key):
-    keys = jax.random.split(key, len(sizes)-1)
-    return [random_layer_params(m,n,k) for m,n,k in zip(sizes[:-1], sizes[1:], keys)]
+    def __init__(self, key: Key, hidden_dims: List[int]):
+        self.layers = []
+        layer_dims = [9] + hidden_dims + [1]
+        keys = jax.random.split(key, len(layer_dims)-1)
+        for in_features, out_features, key_layer in zip(layer_dims[:-1], layer_dims[1:], keys):
+            self.layers.append(equinox.nn.Linear(
+                key=key_layer,
+                in_features=in_features,
+                out_features=out_features,
+                use_bias=True,
+            ))
 
-def update_params(params, gradient, learning_rate=0.01):
-    new_params = []
-    for (w,b), (dw, db) in zip(params, gradient):
-        new_params.append(
-            (w - learning_rate * dw, b - learning_rate * db)
-        )
-    return new_params
+    def __call__(self, input: Array):
+        x = input
+        for layer in self.layers[:-1]:
+            x = layer(x)
+            x = jax.nn.relu(x)
+        x = self.layers[-1](x)
+        x = jax.nn.sigmoid(x)
+        return x[0]
 
-def forward(params, input):
-    layer = input
-    for w,b in params[:-1]:
-        layer = jax.nn.relu(jnp.dot(w,layer) + b)
-    w, b = params[-1]
-    layer = jnp.dot(w,layer) + b
-    
-    return layer
+def cross_entropy(
+    model: ConwayModel,
+    input: Array,
+    alive: Int
+) -> float:
+    """
+    Hx(q, p) = -Sum_i p(i) log q(i)
+    """
+    prob_alive = model(input)
+    # prob_true is prob_alive if alive == 1, and 1-prob_alive if alive == 0
+    prob_true = prob_alive * alive + (1 - prob_alive) * (1 - alive)
+    return -jnp.log(prob_true)
 
-LAYER_SIZES = [9, 9, 3, 1]
+@jax.jit
+def total_correct(model: ConwayModel, inputs, outputs):
+    predictions = jax.vmap(lambda x: model(x) > 0.5)(inputs)
+    return jnp.sum(predictions == outputs)
 
 def main(
     seed: int = 0,
+    hidden_dims: List[int] = [6,6,3],
     learning_rate: float = 0.01,
     epochs: int = 10000,
 ):
-    
+
+    inputs = jnp.array(list(itertools.product((0,1), repeat=9)))
+    outputs = jax.vmap(conway.step)(inputs)
+
+    def loss_fn(model):
+        entropies = jax.vmap(
+            cross_entropy,
+            in_axes=(None,0,0)
+        )(model, inputs, outputs)
+        return jnp.mean(entropies)
+
+    value_and_grad = jax.jit(jax.value_and_grad(loss_fn))
+
     key = jax.random.key(seed)
 
-    key, key_params = jax.random.split(key)
-    params = init_network_params(LAYER_SIZES, key_params)
-
-    inputs = jnp.asarray(list(itertools.product((0,1), repeat=9)))
-    outputs = jnp.asarray([conway.step(input) for input in inputs])
-
-    def predict(params, input):
-        output = forward(params, input)[0]
-        return jax.nn.sigmoid(output)
-
-    @jax.jit
-    def loss(params):
-        predictions = jax.vmap(
-            predict,
-            in_axes=(None,0)
-        )(params, inputs)
-        # This isn't really what we want, we'd rather do something
-        # like -ve for 0 and +ve for 1
-        return jnp.mean((predictions - outputs) ** 2)
-
-    value_and_grad = jax.value_and_grad(loss)
+    model = ConwayModel(key=key, hidden_dims=hidden_dims)
 
     for t in tqdm.trange(epochs):
-        l, g = value_and_grad(params)
-        params = update_params(params, g, learning_rate=learning_rate)
-        if t % 100 == 0:
-            tqdm.tqdm.write(f'loss: {l:.6f}')
-
-    num_correct = len(inputs)
-    for input, answer in zip(inputs, outputs):
-        prediction = 1 if predict(params, input) > 0 else 0
-        if answer != prediction:
-            num_correct -= 1
-            print(f'input: {input}, answer: {answer}, prediction: {prediction}')
-
-    print(f'{num_correct}/{len(inputs)} correct')
+        loss, grads = value_and_grad(model)
+        model = jax.tree.map(
+            lambda w, g: w - g * learning_rate,
+            model,
+            grads
+        )
+        if t % 100 == 0 or t == epochs-1:
+            tqdm.tqdm.write(f'loss: {loss:.6f}, {total_correct(model, inputs, outputs)}/{len(outputs)} correct')
 
 if __name__ == "__main__":
     import tyro
