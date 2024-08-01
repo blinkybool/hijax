@@ -107,7 +107,7 @@ class SimpLeNet(eqx.Module):
 
     def forward_batch(
         self,
-        x_batch: Float[Array, "b 1 28 28"],
+        x_batch: Float[Array, "b 28 28"],
     ) -> Float[Array, "b 10"]:
         return jax.vmap(
             self.forward,
