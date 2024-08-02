@@ -97,7 +97,7 @@ class SimpLeNet(eqx.Module):
         # C5:       -> 120x1x1 (note: equiv. dense 400->120 at this size)
         x = scaled_tanh(self.C5(x))
         # (flatten) -> 120
-        x = x.flatten()
+        x = jnp.ravel(x)
         # F6:       -> 84
         x = scaled_tanh(self.F6(x))
         # Output*:  -> 10 (note: learned map, no hand-made RBF code)
@@ -109,10 +109,7 @@ class SimpLeNet(eqx.Module):
         self,
         x_batch: Float[Array, "b 28 28"],
     ) -> Float[Array, "b 10"]:
-        return jax.vmap(
-            self.forward,
-            in_axes=0,
-        )(x_batch)
+        return jax.vmap(self.forward)(x_batch)
 
 
 def scaled_tanh(x):
@@ -160,7 +157,7 @@ def main(
     print("initialising optimiser...")
     # configure learning rate schedule
     if lr_schedule:
-        optimiser = optax.linear_schedule(
+        learning_rate = optax.linear_schedule(
             init_value=learning_rate,
             end_value=learning_rate/100,
             transition_steps=num_steps,
