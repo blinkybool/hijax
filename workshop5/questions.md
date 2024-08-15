@@ -1,0 +1,2 @@
+- Does jnp use XLA without JIT? -> no, XLA is about the compiling the computational graph
+- How does jnp know it's inside a jitted function
