@@ -46,7 +46,7 @@ JAX lets us hardware-accelerate environments too! Yay!
 
 But, environment code is often pretty different from neural network code.
 
-* Neural network forward passes are mostly about computating straightforward
+* Neural network forward passes are mostly about computing straightforward
   expressions without different 'cases'.
 
 * Environments (e.g. games) often involve **branching computation,** for
@@ -71,7 +71,7 @@ In python this is one of the first things you learn how to do:
 
 ```
 def max(x, y):
-  if y - x > 0:
+  if y > x:
       return y
   else:
       return x
@@ -121,7 +121,7 @@ Examples using things we have seen so far:
     ```
     def max(x, y):
         both_values = jnp.array([x, y])
-        y_is_greater = (y - x > 0)
+        y_is_greater = (y > x)
         index_of_max = y_is_greater.astype(int)
         return both_values[index_of_max]            # XLA 'scatter' opteration
     ```
@@ -130,22 +130,69 @@ Examples using things we have seen so far:
 2.  Summation with boolean coefficients can also be used for branching:
     ```
     def max(x, y):
-        y_is_greater = (y - x > 0)
+        y_is_greater = (y > x)
         return y * (y_is_greater) + x * (~y_is_greater)
     ```
     (not ideal: messy and requires some gratuitous flops)
 
-New examples we'll meet today:
+More special-purpose operations:
 
-* `jax.numpy.where`...
-* `jax.lax.select`...
-* `jax.lax.cond`...
+3. `jax.lax.select` gives ternary conditional expression (analogous to `y if
+   (y > x) else x` in Python, though without short-circuit evaluation):
+    ```
+    def max(x, y):
+        y_is_greater = (y > x)
+        return jax.lax.select(
+            y_is_greater,
+            y,              # if true return this
+            x,              # if false return this
+        )
+    ```
+    Note: has two limitations:
+
+    * Both branch expressions are evaluated, `select` just moves forward
+      with the appropriate one. This can be expensive.
+    * This works fine for scalars, but for multidimensional vectors the
+      shapes and datatypes must be identical, which can be inconvenient.
+
+4. `jax.lax.cond` has an interface like an `if` statement where you provide
+   *functions* corresponding to the two branches (rather than expressions),
+   and it calls just the appropriate one.
+    ```
+    def max(x, y):
+        y_is_greater = (y > x)
+        return jax.lax.cond(
+            y_is_greater,
+            lambda: y,
+            lambda: x,
+        )
+    ```
+    Note: only one branch is evaluated when possible. However, when this
+    operation is vmapped, it is replaced with `select` and so both are
+    evaluated anyway.
+
+5. `jax.numpy.where` offers a slightly more convenient version of `select`
+   with some automatic type-casting and broadcasting semantics. It still
+   requires the inputs to be type/broadcast compatible.
+    ```
+    def max(x, y):
+        y_is_greater = (y > x)
+        return jax.numpy.where(
+            y_is_greater,
+            y,              # if true return this
+            x,              # if false return this
+        )
+    ```
+   In this example it's the same code as `jax.lax.select`. This is the one I
+   normally use rather than `select` by default.
+
+We'll get some practice with (5) `jax.numpy.where` today.
 
 
 Workshop
 --------
 
-So... let's use this to implement an environment!
+So... let's use these to implement an environment!
 
 
 Challenges
@@ -161,6 +208,7 @@ There are lots of potentially interesting ways to build on today's demo:
 
 3. Implement an environment with an array of 'keys' that can be collected to
    unlock an array of 'chests' containing reward. Lots and lots of branching.
+
 
 Next week
 ---------
