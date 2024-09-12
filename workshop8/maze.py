@@ -3,7 +3,6 @@ Gridworld navigation environment, accelerated with JAX.
 """
 
 import functools
-import dataclasses
 
 import jax
 import jax.numpy as jnp
