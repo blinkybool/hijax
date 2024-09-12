@@ -21,12 +21,96 @@ import mattplotlib as mp
 
 @strux.struct
 class EnvState:
-    "TODO"
-
+    wall_map: Bool[Array, "size size"]
+    hero_pos: Int[Array, "2"]
+    goal_pos: Int[Array, "2"]
+    got_goal: bool
 
 @functools.partial(strux.struct, static_fieldnames=["size"])
 class MazeEnvironment:
-    "TODO"
+    size: int
+    wall_prob: float
+    
+    @jax.jit
+    def reset(self, rng: PRNGKeyArray) -> EnvState:
+        rng_walls, rng = jax.random.split(rng)
+        wall_map = jnp.ones((self.size, self.size), dtype=bool)
+        wall_map = wall_map.at[1:-1, 1:-1].set(
+            jax.random.bernoulli(
+                key=rng_walls,
+                shape=(self.size-2, self.size-2),
+                p=self.wall_prob,
+            )
+        )
+
+        rng_spawn, rng = jax.random.split(rng)
+        hero_index, goal_index = jax.random.choice(
+            key=rng_spawn,
+            a=self.size*self.size,
+            shape=(2,),
+            replace=False,
+            p= ~wall_map.flatten(),
+        )
+        hero_pos = jnp.array(
+            [hero_index // self.size,
+             hero_index % self.size])
+        goal_pos = jnp.array(
+            [goal_index // self.size,
+             goal_index % self.size])
+        
+        return EnvState(
+            wall_map=wall_map,
+            hero_pos=hero_pos,
+            goal_pos=goal_pos,
+            got_goal=False,
+        )
+
+    def step(self, state: EnvState, action: Int[Array, ""]) -> tuple[EnvState, float, bool]:
+        # step the hero
+        step = jnp.array((
+            (-1, 0),
+            (0, -1),
+            (1, 0),
+            (0, 1),
+        ))[action]
+        next_pos = state.hero_pos + step
+        hit_wall = state.wall_map[next_pos[0], next_pos[1]]
+        next_pos = jnp.where(hit_wall, state.hero_pos, next_pos)
+        state = state.replace(hero_pos=next_pos)
+
+        # check if we got the goal
+        hit_goal = (state.hero_pos == state.goal_pos).all()
+        first_hit = hit_goal & ~state.got_goal
+        state = state.replace(
+            got_goal=state.got_goal | hit_goal,
+        )
+
+        reward = first_hit.astype(float)
+        done = state.got_goal
+        return (state, reward, done)
+
+    @jax.jit
+    def render(self, state: EnvState) -> Float[Array, "size size 3"]:
+        wall = jnp.array((0.2, 0.2, 0.2))
+        path = jnp.array((0.0, 0.0, 0.0))
+        hero = jnp.array((0.0, 0.0, 0.0))
+        goal = jnp.array((1.0, 1.0, 0.0))
+
+        img = jnp.where(
+            state.wall_map.reshape(self.size, self.size, 1),
+            wall,
+            path,
+        )
+        img = img.at[
+            state.hero_pos[0],
+            state.hero_pos[1],
+        ].set(hero)
+        img = img.at[
+            state.goal_pos[0],
+            state.goal_pos[1],
+        ].set(goal)
+
+        return img
 
 
 # # # 
@@ -34,7 +118,7 @@ class MazeEnvironment:
 
 
 def main(
-    size: int = 17,
+    size: int = 16,
     wall_prob: float = 0.25,
     num_environments: int = 8,
     seed: int = 42,
@@ -42,10 +126,15 @@ def main(
     rng = jax.random.key(seed=seed)
 
     # initialise environment class
-    # TODO
+    env = MazeEnvironment(size=size, wall_prob=wall_prob)
 
     # initialise first env states
-    # TODO
+    rng_reset, rng = jax.random.split(rng)
+    states = jax.vmap(
+        env.reset,
+    )(
+        jax.random.split(rng_reset, num_environments)
+    )
     print(render(
         env,
         states=states,
@@ -68,10 +157,23 @@ def main(
         actions = jnp.full(num_environments, action)
         
         # apply the action
-        # TODO
+        states, rewards, dones = jax.vmap(
+            env.step,
+        )(states, actions)
 
         # reset if done
-        # TODO
+        rng_reset, rng = jax.random.split(rng)
+        reset_states = jax.vmap(
+            env.reset,
+        )(
+            jax.random.split(rng_reset, num_environments)
+        )
+
+        states = jnp.where(
+            dones.reshape(num_environments, 1, 1, 1),
+            reset_states,
+            states,
+        )
 
         # render
         plot = render(
